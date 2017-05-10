@@ -1,0 +1,56 @@
+Usage: %ARG% OPERATION OPARGS
+
+       OPERATION   Can be one of these: help, version, speeds, ident, erase,
+                   read, write.
+
+       OPARGS      Are arguments for selected operation. Note that the same
+                   argument can have a different meaning when used with
+                   different OPERATION.
+
+Common options:
+      -p PORTNAME  Name of a serial port device to use.
+
+      -s SPEED     Serial line communication speed in Bd. Note that the
+                   SPEED is a number without 'Bd' suffix. Default SPEED
+                   is 19200.
+
+      -v           Be more verbose.
+
+      -f FREQ      CPU frequency in MHz. Real number with dot as a decimal
+                   separator. This is used only by ST10F168 MCU and is
+                   mandatory for it.
+
+      -g           Print progress for read and write operations.
+
+Operations:
+    help
+          Print this help message.
+
+    version
+          Print name and version information of this program.
+
+    speeds
+          Print list of serial line speeds available.
+
+    ident
+          Print name of supported MCU connected.
+
+    erase [-b n[,n]...]
+      -b n[,n]...  Numbers of sectors to erase. Without this option whole
+                   FLASH memory is erased.
+
+    read [-n COUNT] FILE
+      -n COUNT     Read only COUNT bytes from address 0 instead of whole memory.
+
+      FILE         Name of a file where to write content of memory.
+
+    write [-e,-c] FILE
+      -e           Erase whole FLASH memory before writing data. Without this
+                   option only blocks which are going to be programmed are
+                   erased.
+
+      -c           Check written data by reading it back and comparing with FILE
+                   data. Without this option result of write operation is
+                   checked only by MCU FLASH memory controller.
+
+      FILE         Name of a file containing data to write to MCU FLASH memory.

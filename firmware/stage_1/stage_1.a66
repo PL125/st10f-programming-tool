@@ -1,0 +1,43 @@
+$MOD167
+$SEGMENTED
+
+$INCLUDE (REG167.INC)
+$INCLUDE (COMMON.INC)
+
+NAME FIRMWARE_STAGE_1
+ASSUME DPP3: SYSTEM
+
+; Firmware prvej urovne - First stage firmware
+;
+; Musi mat 32 bajtov. Nahra do IRAM kod, pre vykonavanie operacii
+; s FLASH pamatou. 
+; Ten kod je firmware druhej urovne (second stage firmware)
+; a moze mat maximalne 1024 bajtov. Bude zavedeny do IRAM na adresu 0xF600.
+; Po nahrani do RAM, skoci na adresu 0xF600 a zacne vykonavat second
+; stage firmware.
+FW_STAGE_1 SECTION CODE AT FW1BASE
+	
+; Typ Task nemoze byt, pretoze nam kompilator kod umiestni na adresu 0000h
+MAIN PROC
+		; Enable XRAM1 where firmware will be stored
+		BSET SYSCON.2		; XPEN = 1
+		BSET XPERCON.2		; XRAM1EN = 1
+		; Load the firmware base address in XRAM1
+		MOV R0,#FW2BASE
+		; Receive firmware
+REC:	JNB S0RIC.7,REC		; cakame na bajt zo serioveho rozhrania
+		MOVB [R0],S0RBUF	; zapiseme ho do RAM
+		BCLR S0RIC.7		; zhodime priznak prijatia ramca zo serioveho rozhrania
+		CMPI1 R0,#FW2END	; najprv sa porovnava, az potom inkrementuje
+		JMPR CC_ULT,REC
+		; Enter the firmware
+		JMP FW2START		
+MAIN ENDP
+
+FW_STAGE_1 ENDS
+
+FW_S2 SECTION CODE AT FW2BASE
+FW2START:
+FW_S2 ENDS
+
+END

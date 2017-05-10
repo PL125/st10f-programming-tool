@@ -1,0 +1,273 @@
+$MOD167
+$SEGMENTED
+
+$INCLUDE (REG167.INC)
+$INCLUDE (COMMON.INC)
+	
+CONST_2TCL  EQU  (REGBANK1 + 32d) ; premenna
+
+NAME FIRMWARE_ST10F168
+ASSUME DPP3: SYSTEM
+
+FW_DATA SECTION DATA WORD AT FW2DATA
+	; Control array of structures {segment, address, length in words} for read and write operations
+	FLASH_MAPPING:
+		DW 0,0,(32*1024)/2
+        DW 1,8000h,(32*1024)/2
+		DW 2,0000h,(64*1024)/2
+		DW 3,0000h,(32*1024)/2
+		DW 3,8000h,(32*1024)/2
+		DW 4,0000h,(64*1024)/2 ; Length is not needed
+FW_DATA ENDS
+
+FW_ST10F168 SECTION CODE AT FW2BASE
+;-------------------------------------------------------------------------------
+; Main procedure
+;
+; Caka na slovo prikazu, odosle ho naspat pre potvrdenie a to iste musi znovu
+; prijat.
+;-------------------------------------------------------------------------------	
+MAIN PROC
+		; Default register bank
+		MOV CP,#REGBANK0
+		; Zapneme serial buffer overrun detection
+		BSET S0CON.7
+		; Init stack, size = 128 words, 256 bytes
+		MOV R0,SYSCON
+		AND R0,#3FFFh
+		OR R0,#2000h
+		MOV SYSCON,R0
+
+		MOV	STKUN,	#STACK_TOP
+		MOV	STKOV,	#STACK_BOTTOM
+		MOV	SP, 	#STACK_TOP
+
+		NOP
+		NOP
+	
+		MOV	DPP0,#0
+		MOV	DPP1,#1
+		MOV	DPP2,#2
+		MOV	DPP3,#3
+		
+		; Signalize successful initialization
+		MOV R15,#0
+		CALL SEND
+;-----------------------------------------------------------------------
+; Command loop
+;-----------------------------------------------------------------------
+$INCLUDE (SHELL.INC)
+
+MAIN ENDP
+
+;-------------------------------------------------------------------------------
+; Receive config information (1 word)
+;-------------------------------------------------------------------------------
+REC_CONFIG PROC NEAR
+		; Get 2TCL constant
+		CALL REC_SAFE
+		CMP R14,#0
+		JMPR CC_NE,REC_CONFIG_ERROR
+		MOV CONST_2TCL,R15
+REC_CONFIG_ERROR:
+		RET
+REC_CONFIG ENDP
+
+;-------------------------------------------------------------------------------
+; Erase chip
+;-------------------------------------------------------------------------------
+ERASE_CHIP PROC NEAR
+		SCXT CP,#REGBANK1
+		; Receive 2TCL constant for R4 STEAK
+		CALL REC_CONFIG
+		CMP R14,#0
+		JMPR CC_NE,ERASE_CHIP_ERROR		
+		MOV R13,#0Fh  ; Erase all blocks
+		JMP ERASE_BLOCKS_MASK_OK
+ERASE_CHIP_ERROR:
+		POP CP
+		RET
+ERASE_CHIP ENDP
+	
+;-------------------------------------------------------------------------------
+; Erase blocks
+;-------------------------------------------------------------------------------
+ERASE_BLOCKS PROC NEAR
+		SCXT CP,#REGBANK1
+		; Receive 2TCL constant for R4 STEAK
+		CALL REC_CONFIG
+		CMP R14,#0
+		JMPR CC_NE,ERASE_BLOCKS_ERROR	
+		; Receive mask of blocks going to be erased
+		CALL REC_SAFE
+		; Store mask
+		MOV R13,R15
+		; Exit if there was an error
+		CMP R14,#0
+		JMPR CC_EQ,ERASE_BLOCKS_MASK_OK
+ERASE_BLOCKS_ERROR:
+		POP CP
+		RET
+		
+ERASE_BLOCKS_MASK_OK:
+		; Erase blocks command
+		MOV R0,#0EEEEh
+		MOV R1,#5555h
+		MOV R2,#0 ; Block counter
+		; V R13 mame masku
+ERASE_BLOCKS_LOOP:
+		ROR R13,#1
+		JNB PSW.1,ERASE_BLOCKS_NEXT
+		MOV R3,R2
+		CALL UNLOCK_SEQUENCE
+		; Check return code
+		CMP R14,#0
+		JMPR CC_NE,ERASE_BLOCKS_DONE
+ERASE_BLOCKS_NEXT:
+		CMPI1 R2,#2
+		JMPR CC_UGT,ERASE_BLOCKS_DONE
+		JMP ERASE_BLOCKS_LOOP
+ERASE_BLOCKS_DONE:
+		MOV R15,R14
+		CALL SEND	
+		POP CP		
+		RET
+ERASE_BLOCKS ENDP
+
+;-------------------------------------------------------------------------------
+; Read
+;-------------------------------------------------------------------------------
+READ PROC NEAR
+		SCXT CP,#REGBANK1
+		; Receive 2TCL constant for R4 STEAK
+		CALL REC_CONFIG
+		CMP R14,#0
+		JMPR CC_NE,READ_ERROR	
+		; Prijmeme pocet bajtov pre precitanie
+		CALL REC_DWORD_SAFE
+		CMP R14,#0
+		JMPR CC_NE,READ_ERROR		
+		; Pocitadlo velkosti 1024 bajtoveho bloku
+		MOV R10,#1024
+		; Base of the control table
+		MOV R11,#DPP3:FLASH_MAPPING
+		
+READ_START:
+		MOV R0,[R11] ; Get segment, R0
+		ADD R11,#2	
+		MOV R1,[R11] ; Get start address, R1
+		ADD R11,#2
+		MOV R2,[R11] ; Get data length to read, R2
+		ADD R11,#2
+READ_LOOP:
+		; Read word
+		EXTS R0,#1
+		MOV R15,[R1]
+		CALL SEND
+		CALL CHECK_COUNT
+		CMP R14,#1
+		JMPR CC_EQ,READ_DONE
+		ADD R1,#2  ; Set address of the next word
+		SUB R2,#1  ; Decrement word counter
+		JMPR CC_NZ,READ_LOOP
+		JMP READ_START
+
+READ_ERROR:
+READ_DONE:
+		POP CP
+		RET
+READ ENDP
+	
+;-------------------------------------------------------------------------------
+; Write
+;-------------------------------------------------------------------------------
+WRITE PROC NEAR
+		SCXT CP,#REGBANK1
+		; Receive 2TCL constant for R4 STEAK
+		CALL REC_CONFIG
+		CMP R14,#0
+		JMPR CC_NE,WRITE_ERROR	
+		; Prijmeme pocet bajtov pre zapis
+		CALL REC_DWORD_SAFE
+		CMP R14,#0
+		JMPR CC_NE,WRITE_ERROR	
+		; Pocitadlo velkosti 1024 bajtoveho bloku
+		MOV R10,#1024
+		; Base of the control table
+		MOV R11,#DPP3:FLASH_MAPPING
+WRITE_START:
+		MOV R0,[R11] ; Get segment number, R0
+		AND R0,#000Fh ; Skonstruujeme prikaz
+		OR R0,#55A0h 
+		ADD R11,#2
+		MOV R1,[R11] ; Get start address, R1
+		ADD R11,#2
+		MOV R5,[R11] ; Get data length to write, R5
+		ADD R11,#2
+WRITE_LOOP:
+		CALL REC
+		CMP R14,#0
+		JMPR CC_NE,WRITE_SEND_ERROR
+		MOV R2,R15
+		; Write word
+		CALL UNLOCK_SEQUENCE
+		CMP R14,#0
+		JMPR CC_NE,WRITE_SEND_ERROR
+		CALL CHECK_COUNT
+		CMP R14,#1
+		JMPR CC_EQ,WRITE_DONE
+		ADD R1,#2
+		SUB R5,#1
+		JMPR CC_NZ,WRITE_LOOP
+		JMP WRITE_START
+		
+WRITE_SEND_ERROR:
+		MOV R15,R14
+		CALL SEND
+WRITE_ERROR:
+WRITE_DONE:
+		POP CP
+		RET
+WRITE ENDP
+	
+;-------------------------------------------------------------------------------
+; Helper subroutines
+;-------------------------------------------------------------------------------
+$INCLUDE (SUBROUTINES.INC)
+
+; Vstup: R0, R1, R2, R3, R4
+; Vystup: R14 navratovy kod
+; Zachovava: R0, R1, R2, R3, R4
+UNLOCK_SEQUENCE PROC NEAR
+		PUSH R0
+		PUSH R1
+		PUSH R2
+		PUSH R3
+		PUSH R6
+		
+		MOV R4,CONST_2TCL ; Perioda hodinoveho signalu v ns
+		; Unlock sequence
+		MOV R6,#8000h
+		
+		EXTS #1,#2
+		MOV	8000h,R6
+		MOV	[R6],R6
+		NOP
+		NOP
+		MOV R14,R0
+		
+		POP R6
+		POP R3
+		POP R2
+		POP R1
+		POP R0
+		RET
+UNLOCK_SEQUENCE ENDP
+;-------------------------------------------------------------------------------
+; End of helper subroutines
+;-------------------------------------------------------------------------------
+
+FW_ST10F168 ENDS
+	
+
+END

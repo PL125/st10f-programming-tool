@@ -1,0 +1,27 @@
+$MOD167
+$SEGMENTED
+
+$INCLUDE (REG167.INC)
+$INCLUDE (COMMON.INC)
+	
+NAME FIRMWARE_IDENTIFICATION
+ASSUME DPP3: SYSTEM
+
+FW_IDENT SECTION CODE AT FW2BASE
+MAIN PROC
+		; Odosleme identifikaciu vyrobcu
+		CALL IDENTIFY
+		; Vratime sa na firmware prvej urovne a tam pockame na nahratie
+		; firmwaru pre vykonavanie operacii s FLASH
+		JMP FW1START
+MAIN ENDP
+	
+$INCLUDE (SUBROUTINES.INC)	
+
+FW_IDENT ENDS
+
+FW_S1 SECTION CODE AT FW1BASE
+FW1START:
+FW_S1 ENDS
+
+END
