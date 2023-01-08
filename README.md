@@ -1,3 +1,10 @@
+***
+
+**This is a frozen project. It is intended to provide authentic snapshot of the
+history with all the good things and all the things that could be improved.**
+
+***
+
 # Programming tool for ST10F family of microcontrollers
 
 This is my bachelor's thesis at Faculty of Information Technology at
